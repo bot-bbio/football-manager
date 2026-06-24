@@ -9,6 +9,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 from .config import Config
+from .news_client import ESPNClient
 from .players import PlayerData
 from .sleeper_client import SleeperClient, SleeperError
 
@@ -17,6 +18,7 @@ from .sleeper_client import SleeperClient, SleeperError
 class ToolContext:
     client: SleeperClient
     players: PlayerData
+    news: ESPNClient
     user_id: str
     username: str
     league_id: str
@@ -28,7 +30,12 @@ class ContextError(RuntimeError):
     """Raised when we cannot determine which user/league to operate on."""
 
 
-def resolve_context(client: SleeperClient, config: Config) -> ToolContext:
+def resolve_context(
+    client: SleeperClient,
+    config: Config,
+    *,
+    news_client: ESPNClient | None = None,
+) -> ToolContext:
     if not config.sleeper_username:
         raise ContextError(
             "SLEEPER_USERNAME is not set. Set it to your Sleeper username."
@@ -55,6 +62,7 @@ def resolve_context(client: SleeperClient, config: Config) -> ToolContext:
     return ToolContext(
         client=client,
         players=players,
+        news=news_client or ESPNClient(),
         user_id=user_id,
         username=config.sleeper_username,
         league_id=league_id,

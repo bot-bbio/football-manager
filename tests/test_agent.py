@@ -37,10 +37,11 @@ class FakeAnthropic:
 
 
 @pytest.fixture
-def ctx(fake_client, player_data):
+def ctx(fake_client, player_data, fake_news):
     return ToolContext(
         client=fake_client,
         players=player_data,
+        news=fake_news,
         user_id="user_me",
         username="me",
         league_id="league_1",
@@ -49,7 +50,7 @@ def ctx(fake_client, player_data):
     )
 
 
-def make_config():
+def make_config(web_search=False):
     return Config(
         anthropic_api_key="key",
         sleeper_username="me",
@@ -57,6 +58,7 @@ def make_config():
         season="2025",
         model="claude-opus-4-8",
         effort="high",
+        web_search=web_search,
     )
 
 
@@ -110,3 +112,41 @@ def test_agent_immediate_answer_without_tools(ctx):
     ]
     agent = AssistantManager(make_config(), ctx, client=FakeAnthropic(responses))
     assert agent.send("hi") == "hello"
+
+
+def server_tool_block(name, tool_input):
+    return SimpleNamespace(type="server_tool_use", name=name, input=tool_input)
+
+
+def test_agent_resumes_after_pause_turn(ctx):
+    # A server-side web search pauses the turn; the loop must re-send to resume
+    # rather than returning early, and should report the server tool call.
+    responses = [
+        SimpleNamespace(
+            stop_reason="pause_turn",
+            content=[server_tool_block("web_search", {"query": "Josh Allen injury"})],
+        ),
+        SimpleNamespace(
+            stop_reason="end_turn",
+            content=[text_block("Allen is healthy; start him.")],
+        ),
+    ]
+    reported = []
+    agent = AssistantManager(
+        make_config(web_search=True),
+        ctx,
+        client=FakeAnthropic(responses),
+        tool_reporter=lambda name, args: reported.append(name),
+    )
+    answer = agent.send("Is Josh Allen ok to start?")
+    assert answer == "Allen is healthy; start him."
+    assert reported == ["web_search"]
+    assert len(agent.client.messages.calls) == 2  # resumed, not returned early
+
+
+def test_web_search_tool_toggle(ctx):
+    enabled = AssistantManager(make_config(web_search=True), ctx, client=FakeAnthropic([]))
+    assert any(t.get("name") == "web_search" for t in enabled._api_tools)
+
+    disabled = AssistantManager(make_config(web_search=False), ctx, client=FakeAnthropic([]))
+    assert not any(t.get("name") == "web_search" for t in disabled._api_tools)

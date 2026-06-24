@@ -153,3 +153,88 @@ class FakeSleeperClient:
 @pytest.fixture
 def fake_client() -> FakeSleeperClient:
     return FakeSleeperClient()
+
+
+# Trimmed but structurally-faithful copies of real ESPN payloads.
+ESPN_NEWS = {
+    "articles": [
+        {
+            "headline": "Bijan Robinson dominates in Falcons win",
+            "description": "Bijan Robinson rushed for 120 yards and two scores.",
+            "published": "2025-09-20T22:31:39Z",
+            "links": {"web": {"href": "https://www.espn.com/nfl/story/bijan"}},
+            "categories": [
+                {"type": "league", "description": "NFL"},
+                {"type": "athlete", "description": "Bijan Robinson", "athleteId": 4430807},
+            ],
+        },
+        {
+            "headline": "Bills roll on the road",
+            "description": "Buffalo's quarterback threw for 300 yards.",
+            "published": "2025-09-20T20:00:00Z",
+            "links": {"web": {"href": "https://www.espn.com/nfl/story/bills"}},
+            "categories": [
+                {"type": "athlete", "description": "Josh Allen", "athleteId": 3918298},
+            ],
+        },
+    ]
+}
+
+ESPN_INJURIES = {
+    "injuries": [
+        {
+            "id": "1",
+            "displayName": "New York Jets",
+            "injuries": [
+                {
+                    "status": "Questionable",
+                    "date": "2025-09-19T00:04Z",
+                    "shortComment": "Some Backup is nursing a hamstring.",
+                    "athlete": {
+                        "displayName": "Some Backup",
+                        "position": {"abbreviation": "RB"},
+                        "team": {"abbreviation": "NYJ", "displayName": "New York Jets"},
+                    },
+                    "details": {
+                        "fantasyStatus": {"description": "Game-Time Decision"},
+                        "type": "Hamstring",
+                        "detail": "Hamstring",
+                        "returnDate": "2025-09-22",
+                    },
+                }
+            ],
+        },
+        {
+            "id": "2",
+            "displayName": "Buffalo Bills",
+            "injuries": [
+                {
+                    "status": "Active",
+                    "date": "2025-09-18T00:00Z",
+                    "shortComment": "Josh Allen is good to go.",
+                    "athlete": {
+                        "displayName": "Josh Allen",
+                        "position": {"abbreviation": "QB"},
+                        "team": {"abbreviation": "BUF", "displayName": "Buffalo Bills"},
+                    },
+                    "details": {"type": "Not Injury Related", "detail": ""},
+                }
+            ],
+        },
+    ]
+}
+
+
+class FakeESPNClient:
+    """A stand-in for ESPNClient returning canned news and injury data."""
+
+    def get_news(self, limit=50):
+        return ESPN_NEWS
+
+    def get_injuries(self):
+        return ESPN_INJURIES
+
+
+@pytest.fixture
+def fake_news() -> FakeESPNClient:
+    return FakeESPNClient()

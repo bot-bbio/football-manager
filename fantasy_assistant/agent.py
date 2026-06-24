@@ -15,6 +15,11 @@ from .config import Config
 from .context import ToolContext
 from .tools import Tool, build_tools
 
+# Server-side web search tool version. web_search_20260209 (dynamic filtering)
+# is correct for the default claude-opus-4-8; models older than Opus 4.6 /
+# Sonnet 4.6 require the basic variant web_search_20250305 instead.
+WEB_SEARCH_TOOL_VERSION = "web_search_20260209"
+
 SYSTEM_PROMPT = """\
 You are an assistant manager for a fantasy football team on Sleeper. You help \
 the user make manager decisions: setting lineups, evaluating waiver-wire and \
@@ -26,10 +31,17 @@ player roles, injury status, recent usage and trends, opponent matchups, and \
 standings — and say when a call is genuinely close. Use get_nfl_state first if \
 you need to know the current week.
 
+Verify time-sensitive calls before committing to them. Sleeper's roster data \
+can lag real life, so when a decision turns on a player's health, role, or a \
+recent development, check get_injuries and get_player_news first. For anything \
+that may have changed within the last day or so — late injury news, depth-chart \
+shuffles, weather — use web_search. Cite the source (ESPN, or the site \
+web_search surfaces) for any claim that came from news rather than a Sleeper \
+tool, and never invent statistics or reports you didn't retrieve.
+
 Be direct and decisive. Lead with the recommendation, then the short reasoning \
 behind it. When you suggest a lineup change or pickup, name the specific \
-players. Don't invent statistics you didn't retrieve from a tool; if you lack \
-the data to be sure, say so and give your best read anyway.
+players. If you lack the data to be sure, say so and give your best read anyway.
 """
 
 # Reporter signature: (tool_name, tool_input) -> None
@@ -51,6 +63,12 @@ class AssistantManager:
         self._tools: list[Tool] = build_tools(ctx)
         self._dispatch = {t.name: t.handler for t in self._tools}
         self._api_tools = [t.to_api() for t in self._tools]
+        if config.web_search:
+            # Server-side tool: Anthropic runs it; there is no local handler, so
+            # it is not added to the dispatch map.
+            self._api_tools.append(
+                {"type": WEB_SEARCH_TOOL_VERSION, "name": "web_search", "max_uses": 5}
+            )
         self.messages: list[dict[str, Any]] = []
         self._report = tool_reporter or (lambda name, args: None)
 
@@ -79,6 +97,16 @@ class AssistantManager:
                 messages=self.messages,
             )
             self.messages.append({"role": "assistant", "content": response.content})
+
+            # Surface server-side tool calls (e.g. web_search) for visibility;
+            # they have already run on Anthropic's side.
+            for block in response.content:
+                if getattr(block, "type", None) == "server_tool_use":
+                    self._report(block.name, dict(block.input))
+
+            # A server tool hit its internal iteration limit; re-send to resume.
+            if response.stop_reason == "pause_turn":
+                continue
 
             if response.stop_reason != "tool_use":
                 return _final_text(response.content)

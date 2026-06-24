@@ -16,6 +16,7 @@ def make_config(**overrides) -> Config:
         season=None,
         model="claude-opus-4-8",
         effort="high",
+        web_search=True,
     )
     base.update(overrides)
     return Config(**base)

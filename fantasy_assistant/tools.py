@@ -12,6 +12,7 @@ from dataclasses import dataclass
 from typing import Any, Callable
 
 from .context import ToolContext
+from .news_client import ESPNError
 from .sleeper_client import SleeperError
 
 Handler = Callable[[dict[str, Any]], str]
@@ -262,6 +263,73 @@ def build_tools(ctx: ToolContext) -> list[Tool]:
             )
         return _dump({"week": week, "transactions": out})
 
+    def get_player_news(args: dict[str, Any]) -> str:
+        name = str(args.get("player", "")).strip()
+        if not name:
+            return _dump({"error": "provide a player name"})
+        limit = int(args.get("limit") or 8)
+        try:
+            data = ctx.news.get_news(limit=50)
+        except ESPNError as exc:
+            return _dump({"error": str(exc)})
+        q = name.lower()
+        out: list[dict[str, Any]] = []
+        for art in data.get("articles") or []:
+            headline = art.get("headline") or ""
+            summary = art.get("description") or ""
+            athlete_match = any(
+                cat.get("type") == "athlete"
+                and q in (cat.get("description") or "").lower()
+                for cat in (art.get("categories") or [])
+            )
+            if q in headline.lower() or q in summary.lower() or athlete_match:
+                out.append(
+                    {
+                        "headline": headline,
+                        "published": art.get("published"),
+                        "summary": summary,
+                        "link": ((art.get("links") or {}).get("web") or {}).get("href"),
+                        "source": "ESPN",
+                    }
+                )
+            if len(out) >= limit:
+                break
+        return _dump({"player": name, "articles": out})
+
+    def get_injuries(args: dict[str, Any]) -> str:
+        team = args.get("team")
+        team = str(team).strip().upper() if team else None
+        try:
+            data = ctx.news.get_injuries()
+        except ESPNError as exc:
+            return _dump({"error": str(exc)})
+        out: list[dict[str, Any]] = []
+        for team_entry in data.get("injuries") or []:
+            for item in team_entry.get("injuries") or []:
+                athlete = item.get("athlete") or {}
+                abbr = ((athlete.get("team") or {}).get("abbreviation") or "").upper()
+                if team and abbr != team:
+                    continue
+                details = item.get("details") or {}
+                fantasy = details.get("fantasyStatus")
+                if isinstance(fantasy, dict):
+                    fantasy = fantasy.get("description")
+                out.append(
+                    {
+                        "player": athlete.get("displayName"),
+                        "team": abbr or None,
+                        "position": (athlete.get("position") or {}).get("abbreviation"),
+                        "status": item.get("status"),
+                        "detail": details.get("detail") or details.get("type"),
+                        "fantasy_status": fantasy,
+                        "return_date": details.get("returnDate"),
+                        "comment": item.get("shortComment"),
+                        "updated": item.get("date"),
+                        "source": "ESPN",
+                    }
+                )
+        return _dump({"team": team, "injuries": out})
+
     return [
         Tool(
             "get_nfl_state",
@@ -364,5 +432,40 @@ def build_tools(ctx: ToolContext) -> list[Tool]:
                 "properties": {"week": {"type": "integer"}},
             },
             get_transactions,
+        ),
+        Tool(
+            "get_player_news",
+            "Get recent ESPN news for a specific player by name. Call this before "
+            "finalizing any start/sit, waiver, or trade decision to check for "
+            "role changes, suspensions, or breaking developments that Sleeper's "
+            "roster data does not reflect. An empty list means no recent ESPN "
+            "coverage, not that the player is fine.",
+            {
+                "type": "object",
+                "properties": {
+                    "player": {"type": "string", "description": "Player full name."},
+                    "limit": {"type": "integer"},
+                },
+                "required": ["player"],
+            },
+            get_player_news,
+        ),
+        Tool(
+            "get_injuries",
+            "Get the current ESPN NFL injury report (designation, body part, "
+            "practice/return notes), optionally filtered to one team's "
+            "abbreviation. Call this before setting a lineup or recommending a "
+            "pickup to confirm a player is healthy and active — it is fresher "
+            "and more detailed than the injury_status field on Sleeper rosters.",
+            {
+                "type": "object",
+                "properties": {
+                    "team": {
+                        "type": "string",
+                        "description": "NFL team abbreviation (e.g. BUF); omit for all.",
+                    }
+                },
+            },
+            get_injuries,
         ),
     ]

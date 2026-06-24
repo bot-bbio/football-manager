@@ -16,6 +16,14 @@ from pathlib import Path
 DEFAULT_MODEL = "claude-opus-4-8"
 
 
+def _env_bool(key: str, default: bool) -> bool:
+    """Parse a boolean environment variable. Unset returns ``default``."""
+    raw = os.environ.get(key)
+    if raw is None:
+        return default
+    return raw.strip().lower() not in ("0", "false", "no", "off", "")
+
+
 def _load_dotenv() -> None:
     """Best-effort load of a local .env file without a hard dependency.
 
@@ -53,6 +61,7 @@ class Config:
     season: str | None
     model: str
     effort: str
+    web_search: bool
 
     @classmethod
     def from_env(cls) -> "Config":
@@ -64,4 +73,5 @@ class Config:
             season=os.environ.get("SLEEPER_SEASON"),
             model=os.environ.get("FANTASY_ASSISTANT_MODEL", DEFAULT_MODEL),
             effort=os.environ.get("FANTASY_ASSISTANT_EFFORT", "high"),
+            web_search=_env_bool("FANTASY_ASSISTANT_WEB_SEARCH", True),
         )

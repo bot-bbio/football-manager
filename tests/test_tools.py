@@ -11,10 +11,11 @@ from fantasy_assistant.tools import build_tools
 
 
 @pytest.fixture
-def tools(fake_client, player_data):
+def tools(fake_client, player_data, fake_news):
     ctx = ToolContext(
         client=fake_client,
         players=player_data,
+        news=fake_news,
         user_id="user_me",
         username="me",
         league_id="league_1",
@@ -90,3 +91,48 @@ def test_transactions_only_complete(tools):
     assert len(result["transactions"]) == 1
     txn = result["transactions"][0]
     assert "Some Backup (RB - NYJ)" in txn["adds"]
+
+
+def test_player_news_matches_by_athlete_category(tools):
+    # "Bills roll on the road" never names Josh Allen in the headline/summary,
+    # so the match must come from the article's athlete category.
+    result = call(tools, "get_player_news", player="Josh Allen")
+    assert result["player"] == "Josh Allen"
+    assert len(result["articles"]) == 1
+    art = result["articles"][0]
+    assert art["headline"] == "Bills roll on the road"
+    assert art["source"] == "ESPN"
+    assert art["link"] == "https://www.espn.com/nfl/story/bills"
+
+
+def test_player_news_matches_by_text(tools):
+    result = call(tools, "get_player_news", player="bijan")
+    assert len(result["articles"]) == 1
+    assert result["articles"][0]["headline"].startswith("Bijan Robinson")
+
+
+def test_player_news_no_match_is_empty(tools):
+    result = call(tools, "get_player_news", player="Nobody Atall")
+    assert result["articles"] == []
+
+
+def test_player_news_requires_name(tools):
+    result = call(tools, "get_player_news", player="")
+    assert "error" in result
+
+
+def test_injuries_all_teams(tools):
+    result = call(tools, "get_injuries")
+    names = {row["player"] for row in result["injuries"]}
+    assert names == {"Some Backup", "Josh Allen"}
+
+
+def test_injuries_filtered_by_team(tools):
+    result = call(tools, "get_injuries", team="nyj")
+    assert len(result["injuries"]) == 1
+    row = result["injuries"][0]
+    assert row["player"] == "Some Backup"
+    assert row["team"] == "NYJ"
+    assert row["status"] == "Questionable"
+    assert row["fantasy_status"] == "Game-Time Decision"
+    assert row["return_date"] == "2025-09-22"
